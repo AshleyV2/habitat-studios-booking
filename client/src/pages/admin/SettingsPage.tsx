@@ -7,6 +7,7 @@ import { Badge } from '../../components/Badges';
 import { SelectField, TextAreaField, TextField } from '../../components/Field';
 import { PageHeader } from '../../components/PageHeader';
 import { Async, Notice } from '../../components/States';
+import { SetupTransfer } from './SetupTransfer';
 
 /*
  * Admin › Settings, in tabs. Business and booking settings save together; connections (payments,
@@ -448,6 +449,7 @@ export function SettingsPage() {
                 <dd>{c.server.setupLinkConfigured ? 'Configured (it stops working once an administrator exists)' : 'Not configured'}</dd>
               </dl>
               <p className="small muted">Payments, email and monitoring set on the server are used whenever the matching field here is blank.</p>
+              <SetupTransfer />
             </>
           )}
 

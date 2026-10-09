@@ -425,6 +425,8 @@ a.figure:hover { background: var(--surface-muted); }
 .settings-save { margin-top: 8px; }
 .settings-confirm { display: block; }
 .settings-confirm ul { margin: 6px 0 12px; padding-left: 18px; }
+.settings-transfer { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border); }
+.settings-transfer h3 { margin: 0 0 6px; font-size: 1rem; }
 .settings-confirm li + li { margin-top: 4px; }
 .settings-dot { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--warn-fg); vertical-align: middle; }
 .settings-dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; margin: 0 0 16px; }

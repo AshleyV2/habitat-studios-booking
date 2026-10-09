@@ -84,6 +84,9 @@ r.put('/settings', can('settings:write'), admin.updateSettings);
 r.get('/settings/connections', can('settings:write'), admin.getConnections);
 r.put('/settings/connections', can('settings:write'), admin.updateConnections);
 r.post('/settings/connections/test', can('settings:write'), emailLimiter, admin.testConnection);
+r.get('/settings/transfer/export', can('settings:write'), admin.exportSetup);
+r.post('/settings/transfer/photos/:id', can('settings:write'), express.raw({ type: ['image/*', 'application/octet-stream'], limit: '6mb' }), admin.importSetupPhoto);
+r.post('/settings/transfer/import', can('settings:write'), admin.importSetup);
 
 r.get('/email', can('system:read'), admin.email);
 r.post('/email/verify', can('settings:write'), admin.verifyEmail);

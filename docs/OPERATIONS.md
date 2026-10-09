@@ -52,7 +52,16 @@ docker compose start app
 
 ### Restoring onto a new machine
 
-Install Docker, copy the `HABITAT` folder (including `.env` and `backups/`), run `deploy/scripts/install.sh` (starts an empty system), then `deploy/scripts/restore.sh <latest backup>`.
+Install Docker, copy the installation folder (including `.env` and `backups/`), run `deploy/scripts/install.sh` (starts an empty system), then `deploy/scripts/restore.sh <latest backup>`.
+
+### Moving a cloud site onto the studio's own server
+
+Install the new server first (INSTALL.md), then choose:
+
+- **Setup only** (a fresh start, no booking history): on the old site, *Admin › Settings › Server › Download setup file*. On the new one, *Import a setup file…*. This copies the settings, website texts, opening hours, rooms and prices, equipment, promo codes, upcoming closures and the website with its photos. Bookings, customers, payments and staff logins are not copied. Neither are passwords and keys (Stripe, the email password, the ApexBook monitoring key), so enter them again in Settings afterwards.
+- **Everything** (bookings, customers, payments and logins too): ask ApexBook for the site's latest backup (`.dump`), put it in the new server's `backups/` folder and run `deploy/scripts/restore.sh <file>`. Then enter the Stripe keys, email password and monitoring key in Settings: they are encrypted with the old server's `SESSION_SECRET` and can't be read on the new one. Links in emails customers already received (manage booking) also stop working, because those are signed with that secret.
+
+Either way, update the Stripe webhook to the new address (NETWORK.md › Stripe webhooks) and move the domain's DNS to the new server last, once it works.
 
 ## Updating to a new version
 

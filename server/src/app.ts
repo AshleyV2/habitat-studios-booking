@@ -35,6 +35,8 @@ function loadIndexHtml(): string | null {
 
 const smallJson = express.json({ limit: '100kb' });
 const siteJson = express.json({ limit: '1mb' });
+// A setup file (Admin › Settings › Server › import) carries up to two website documents; its photos are sent separately.
+const setupJson = express.json({ limit: '4mb' });
 
 export function createApp(): Express {
   const app = express();
@@ -107,7 +109,8 @@ export function createApp(): Express {
     },
     apiLimiter,
     // The website builder saves the whole site in one request; everything else stays small.
-    (req, res, next) => (req.method === 'PUT' && req.path === '/admin/site/draft' ? siteJson : smallJson)(req, res, next),
+    (req, res, next) =>
+      (req.method === 'PUT' && req.path === '/admin/site/draft' ? siteJson : req.method === 'POST' && req.path === '/admin/settings/transfer/import' ? setupJson : smallJson)(req, res, next),
     cookieParser(),
     issueCsrfCookie,
     verifyCsrf,

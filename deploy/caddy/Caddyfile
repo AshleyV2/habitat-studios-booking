@@ -5,7 +5,7 @@
 {$HABITAT_DOMAIN} {
 	encode zstd gzip
 	request_body {
-		max_size 2MB
+		max_size 8MB
 	}
 	reverse_proxy app:8080 {
 		# Overwrite, never append, so clients cannot spoof their address.

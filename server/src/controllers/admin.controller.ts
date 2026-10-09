@@ -17,6 +17,7 @@ import {
   refundSchema,
   roomSchema,
   settingsSchema,
+  setupImportSchema,
   slotSchema,
   staffCreateSchema,
   staffUpdateSchema,
@@ -43,6 +44,7 @@ import * as payments from '../services/payment.service';
 import { priceBooking } from '../services/pricing.service';
 import { getOpeningHours, getSettings, openingHoursDto, setOpeningHours, updateSettings } from '../services/settings.service';
 import * as staff from '../services/staff.service';
+import * as transfer from '../services/transfer.service';
 import { notFound } from '../utils/errors';
 import { localTimeLabel } from '../utils/time';
 import { parse } from '../utils/validate';
@@ -211,6 +213,24 @@ export const adminController = {
   },
   testConnection: async (req: Request, res: Response) =>
     res.json(await connections.testConnection(parse(z.object({ service: z.enum(['stripe', 'apexbook']) }), req.body).service)),
+
+  // --- Setup transfer (copy this installation's setup to another) --------------------
+  exportSetup: async (req: Request, res: Response) => {
+    const { actorId, ip } = a(req);
+    const file = await transfer.exportSetup(actorId, ip);
+    const slug = file.settings.businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'booking';
+    res.set('Content-Disposition', `attachment; filename="${slug}-setup-${file.exportedAt.slice(0, 10)}.json"`);
+    res.json(file);
+  },
+  importSetupPhoto: async (req: Request, res: Response) => {
+    const { actorId } = a(req);
+    const name = decodeURIComponent(String(req.get('x-filename') ?? 'image')).slice(0, 200);
+    res.json(await transfer.importAsset(parse(idParamSchema, req.params).id, req.body, name, actorId));
+  },
+  importSetup: async (req: Request, res: Response) => {
+    const { actorId, ip } = a(req);
+    res.json(await transfer.importSetup(parse(setupImportSchema, req.body).setup, actorId, ip));
+  },
 
   // --- Email -------------------------------------------------------------------------
   email: async (_req: Request, res: Response) => {

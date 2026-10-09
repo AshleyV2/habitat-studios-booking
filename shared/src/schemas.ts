@@ -407,3 +407,40 @@ export const connectionsSchema = z.object({
   apexbookAgentToken: z.string().trim().min(20, 'Paste the whole key').max(500).nullable().optional(),
   apexbookHeartbeatMinutes: z.number().int().min(1).max(1440).nullable(),
 });
+
+// ---------------------------------------------------------------------------
+// Setup transfer (Admin › Settings › Server): copy one installation's setup to another,
+// e.g. moving a cloud site onto the studio's own server. No bookings, customers, staff or secrets.
+// ---------------------------------------------------------------------------
+
+export const SETUP_FILE_FORMAT = 'apexbook-booking-setup';
+export const SETUP_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const;
+
+/** A setup file as sent to the import (photos are uploaded separately, so `data` is not included). */
+export const setupFileSchema = z.object({
+  format: z.literal(SETUP_FILE_FORMAT, 'This is not an ApexBook booking setup file'),
+  version: z.literal(1, 'This setup file is from a newer version. Update this installation first.'),
+  exportedAt: z.string().max(40),
+  from: z.object({ businessName: z.string().max(200), publicUrl: z.string().max(300), version: z.string().max(80) }),
+  settings: settingsSchema,
+  currency: z.string().regex(/^[a-z]{3}$/),
+  bookingRefPrefix: connectionsSchema.shape.bookingRefPrefix,
+  /** Email server details without the password (it has to be entered again). */
+  email: connectionsSchema.pick({ smtpHost: true, smtpPort: true, smtpSecurity: true, smtpUser: true, emailFromName: true, emailFromAddress: true, emailReplyTo: true }),
+  openingHours: openingHoursSchema,
+  rooms: z.array(roomSchema.extend({ id: idSchema, priceRules: z.array(priceRuleSchema).max(50) })).max(100),
+  equipment: z.array(equipmentSchema.extend({ id: idSchema })).max(500),
+  promoCodes: z.array(promoCodeSchema).max(500),
+  closures: z
+    .array(z.object({ roomId: idSchema.nullable(), startsAt: z.iso.datetime(), endsAt: z.iso.datetime(), reason: z.string().trim().min(1).max(200) }))
+    .max(2000),
+  website: z.object({
+    builderLive: z.boolean(),
+    /** Working copy and the live version (website builder documents). */
+    draft: z.unknown().nullable(),
+    published: z.unknown().nullable(),
+    assets: z.array(z.object({ id: idSchema, filename: z.string().trim().min(1).max(200), mime: z.enum(SETUP_IMAGE_TYPES), size: z.number().int().min(1) })).max(500),
+  }),
+});
+export type SetupFile = z.output<typeof setupFileSchema>;
+export const setupImportSchema = z.object({ setup: setupFileSchema, confirm: z.literal(true, 'Tick the box to confirm') });
