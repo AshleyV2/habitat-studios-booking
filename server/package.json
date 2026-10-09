@@ -1,0 +1,42 @@
+{
+  "name": "@habitat/server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/server.ts",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@habitat/shared": "1.0.0",
+    "@prisma/client": "6.19.3",
+    "argon2": "^0.45.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "helmet": "^8.1.0",
+    "nodemailer": "^10.0.10",
+    "pino": "^10.1.0",
+    "pino-http": "^11.0.0",
+    "stripe": "18.5.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.9",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.9.0",
+    "@types/nodemailer": "^8.0.2",
+    "@types/smtp-server": "^3.5.10",
+    "@types/supertest": "^6.0.3",
+    "pino-pretty": "^13.1.2",
+    "smtp-server": "^3.14.0",
+    "supertest": "^7.1.4",
+    "tsup": "^8.5.0",
+    "vitest": "^4.1.11"
+  }
+}

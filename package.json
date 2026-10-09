@@ -1,0 +1,46 @@
+{
+  "name": "habitat-booking",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Habitat Studios booking system \u2014 an ApexBook on-site installation",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "prisma": {
+    "schema": "prisma/schema.prisma",
+    "seed": "tsx prisma/seed-dev.ts"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "prisma generate && npm run build -w server && npm run build -w client",
+    "start": "node server/dist/server.js",
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w client",
+    "test": "npm run test -w server",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:status": "prisma migrate status",
+    "db:seed-dev": "prisma db seed",
+    "create-admin": "node server/dist/create-admin.js",
+    "create-admin:dev": "tsx server/src/cli/create-admin.ts",
+    "smoke": "node scripts/smoke-prod.mjs"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "prisma": "6.19.3"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "tsx": "^4.20.6",
+    "typescript": "~5.9.3"
+  },
+  "overrides": {
+    "vite": "7.3.6"
+  }
+}

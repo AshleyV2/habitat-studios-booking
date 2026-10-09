@@ -1,0 +1,35 @@
+# Caddy obtains and renews the HTTPS certificate for HABITAT_DOMAIN automatically
+# (ports 80 and 443 must reach this machine from the internet — see docs/NETWORK.md).
+# Set TRUST_PROXY=1 in .env when using this proxy.
+
+{$HABITAT_DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 2MB
+	}
+	reverse_proxy app:8080 {
+		# Overwrite, never append, so clients cannot spoof their address.
+		header_up X-Forwarded-For {remote_host}
+	}
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 20MiB
+			roll_keep 10
+		}
+	}
+}
+
+# Redirect the bare domain to www (uncomment when both DNS records point here):
+#
+# habitatstudio.co.uk {
+# 	redir https://www.habitatstudio.co.uk{uri} permanent
+# }
+
+# Optional: an internal hostname for staff tablets on the studio network with a
+# certificate from Caddy's own CA (install Caddy's root certificate on each device):
+#
+# habitat.lan {
+# 	tls internal
+# 	reverse_proxy app:8080
+# }
+# ...and add https://habitat.lan to ADDITIONAL_ORIGINS in .env.

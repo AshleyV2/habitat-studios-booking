@@ -1,0 +1,510 @@
+// ApexBook booking system — one studio's database (on-site or cloud-hosted).
+//
+// Update safety: every schema change ships as a Prisma migration applied with
+// `prisma migrate deploy`. Migrations must be additive/backwards-conscious:
+// add columns as nullable or with defaults, never drop or rename columns that hold
+// bookings, customers, rooms, equipment, prices, settings or payments in the same
+// release that stops using them.
+//
+// Constraints Prisma cannot express (room overlap exclusion, range checks) live in
+// the migration SQL: see prisma/migrations/*_init/migration.sql.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Staff & security
+// ---------------------------------------------------------------------------
+
+enum StaffRole {
+  ADMIN // full access incl. settings, pricing, staff accounts
+  STAFF // day-to-day: calendar, bookings, customers, payments
+}
+
+model StaffUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String?
+  name         String
+  role         StaffRole @default(STAFF)
+  disabledAt   DateTime?
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sessions  Session[]
+  tokens    UserToken[]
+  auditLogs AuditLog[]
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+  expiresAt  DateTime
+  ipAddress  String?
+  userAgent  String?
+
+  user StaffUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+enum UserTokenType {
+  PASSWORD_RESET
+  INVITE
+}
+
+model UserToken {
+  id        String        @id @default(cuid())
+  userId    String
+  type      UserTokenType
+  tokenHash String        @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  user StaffUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  actor StaffUser? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([targetType, targetId])
+}
+
+// ---------------------------------------------------------------------------
+// Business configuration
+// ---------------------------------------------------------------------------
+
+/// Single row (id = 1). Created with safe defaults on first start; edited in admin.
+model Settings {
+  id                        Int      @id @default(1)
+  businessName              String
+  timezone                  String   @default("Europe/London")
+  currency                  String   @default("gbp")
+  contactEmail              String?
+  contactPhone              String?
+  address                   String?
+  websiteUrl                String?
+  /// Start-time granularity and duration step, in minutes.
+  slotMinutes               Int      @default(30)
+  minDurationMinutes        Int      @default(60)
+  maxDurationMinutes        Int      @default(480)
+  /// Online bookings must start at least this far in the future.
+  minNoticeMinutes          Int      @default(60)
+  maxAdvanceDays            Int      @default(90)
+  /// How long an unpaid online booking holds its slot while the customer pays.
+  holdMinutes               Int      @default(30)
+  onlineBookingEnabled      Boolean  @default(true)
+  allowCustomerCancellation Boolean  @default(true)
+  /// Customers may cancel online (with automatic full refund) up to this many hours before the start.
+  cancellationNoticeHours   Int      @default(48)
+  cancellationPolicy        String?
+  bookingTerms              String?
+  confirmationMessage       String?
+  adminNotifyEmail          String?
+  notifyOnNewBooking        Boolean  @default(true)
+  notifyOnCancellation      Boolean  @default(true)
+  /// Public home page content (all optional; nothing is shown if empty).
+  homeHeadline              String?
+  homeIntro                 String?
+  announcement              String?
+  /// Short line under the home headline, e.g. "Your go-to rehearsal space in Manchester."
+  tagline                   String?
+  /// Public website pages (all optional; a page is hidden when its text is empty).
+  aboutText                 String?
+  roomsIntro                String?
+  communalText              String?
+  privacyPolicy             String?
+  featuredQuote             String?
+  featuredQuoteAuthor       String?
+  instagramUrl              String?
+  facebookUrl               String?
+
+  // Connections set in Admin › Settings. Each one, when empty, falls back to the server's
+  // .env value. Secrets are encrypted with a key derived from SESSION_SECRET (*Enc fields)
+  // and are never sent back to the browser.
+  /// Start of booking references, e.g. BK.
+  bookingRefPrefix          String?
+  stripeSecretKeyEnc        String?
+  stripeWebhookSecretEnc    String?
+  smtpHost                  String?
+  smtpPort                  Int?
+  /// tls | starttls | none
+  smtpSecurity              String?
+  smtpUser                  String?
+  smtpPasswordEnc           String?
+  emailFromName             String?
+  emailFromAddress          String?
+  emailReplyTo              String?
+  apexbookApiUrl            String?
+  apexbookAgentTokenEnc     String?
+  apexbookHeartbeatMinutes  Int?
+  updatedAt                 DateTime @updatedAt
+}
+
+/// Weekly opening hours in the business timezone. dayOfWeek: 0 = Sunday … 6 = Saturday.
+model OpeningHours {
+  dayOfWeek   Int     @id
+  isOpen      Boolean @default(false)
+  /// Minutes after local midnight.
+  openMinute  Int     @default(600)
+  /// Minutes after local midnight; 1440 = midnight at the end of the day.
+  closeMinute Int     @default(1320)
+}
+
+model Room {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  capacity        Int?
+  /// Base price per hour, in pence, when no price rule applies.
+  hourlyRatePence Int
+  colour          String   @default("#3d6b8f")
+  /// Photo for the website: site-relative path (site/room-1.jpg) or https URL.
+  imageUrl        String?
+  /// Session types priced by length (validated by ratePlansSchema). Empty = hourly pricing.
+  ratePlans       Json     @default("[]")
+  /// Shortest booking (hourly pricing), in minutes. Null = Settings.minDurationMinutes.
+  minDurationMinutes Int?
+  /// Cheaper for longer: [{ fromMinutes, percentOff }] (validated by lengthDiscountsSchema).
+  lengthDiscounts Json     @default("[]")
+  active          Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  priceRules PriceRule[]
+  bookings   Booking[]
+  blocks     AvailabilityBlock[]
+}
+
+/// Time-of-week price override for a room (e.g. evening/weekend rate).
+model PriceRule {
+  id              String   @id @default(cuid())
+  roomId          String
+  label           String
+  daysOfWeek      Int[]
+  startMinute     Int
+  endMinute       Int
+  hourlyRatePence Int
+  createdAt       DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+}
+
+/// Closures and holds: a specific room (roomId set) or the whole studio (roomId null).
+model AvailabilityBlock {
+  id          String   @id @default(cuid())
+  roomId      String?
+  startsAt    DateTime @db.Timestamptz(3)
+  endsAt      DateTime @db.Timestamptz(3)
+  reason      String
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  room Room? @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([startsAt, endsAt])
+}
+
+enum EquipmentPricing {
+  PER_BOOKING
+  PER_HOUR
+}
+
+model Equipment {
+  id          String           @id @default(cuid())
+  name        String
+  description String?
+  pricePence  Int
+  pricing     EquipmentPricing @default(PER_BOOKING)
+  /// Units the studio owns. Availability = quantity − units on overlapping active bookings.
+  quantity    Int
+  active      Boolean          @default(true)
+  sortOrder   Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  bookingItems BookingEquipment[]
+}
+
+// ---------------------------------------------------------------------------
+// Customers & bookings
+// ---------------------------------------------------------------------------
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  phone     String?
+  bandName  String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings Booking[]
+}
+
+enum BookingStatus {
+  PENDING_PAYMENT // online booking holding its slot while the customer pays
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+  EXPIRED // payment was not completed in time; slot released
+}
+
+enum BookingSource {
+  ONLINE
+  ADMIN
+}
+
+model Booking {
+  id           String        @id @default(cuid())
+  /// Customer-facing reference, e.g. BK-7K3Q9X (prefix: BOOKING_REF_PREFIX)
+  reference    String        @unique
+  roomId       String
+  customerId   String
+  status       BookingStatus
+  source       BookingSource
+  startsAt     DateTime      @db.Timestamptz(3)
+  endsAt       DateTime      @db.Timestamptz(3)
+  /// Session type it was priced on (from Room.ratePlans), kept for re-pricing and display.
+  ratePlanId   String?
+  ratePlanName String?
+
+  // Snapshot of the customer's details as given for this booking.
+  customerName  String
+  customerEmail String
+  customerPhone String?
+  bandName      String?
+  customerNotes String?
+  internalNotes String?
+
+  // Pricing snapshot: what was actually charged, immune to later price changes.
+  currency               String
+  roomSubtotalPence      Int
+  equipmentSubtotalPence Int
+  /// Longer-booking discount plus promo code, in pence (already taken off totalPence).
+  discountPence          Int     @default(0)
+  totalPence             Int
+  pricingSnapshot        Json
+  /// Promo code used, and the code as typed (kept if the code is later deleted).
+  promoCodeId            String?
+  promoCode              String?
+
+  /// PENDING_PAYMENT only: when the hold lapses.
+  expiresAt          DateTime? @db.Timestamptz(3)
+  /// Random salt for the customer's private "manage booking" link. The link token is
+  /// HMAC(SESSION_SECRET, id + salt): re-derivable for emails, never stored.
+  manageSalt         String
+  confirmedAt        DateTime?
+  cancelledAt        DateTime?
+  cancelledBy        String?
+  cancellationReason String?
+  completedAt        DateTime?
+  noShowAt           DateTime?
+  createdById        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  room     Room               @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  customer Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  promo    PromoCode?         @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)
+  items    BookingEquipment[]
+  payments Payment[]
+
+  @@index([roomId, startsAt])
+  @@index([status, startsAt])
+  @@index([customerId])
+  @@index([promoCodeId])
+}
+
+model BookingEquipment {
+  id             String           @id @default(cuid())
+  bookingId      String
+  equipmentId    String
+  name           String
+  quantity       Int
+  pricing        EquipmentPricing
+  unitPricePence Int
+  lineTotalPence Int
+
+  booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  equipment Equipment @relation(fields: [equipmentId], references: [id], onDelete: Restrict)
+
+  @@index([equipmentId])
+  @@index([bookingId])
+}
+
+enum PaymentMethod {
+  STRIPE
+  CASH
+  CARD_TERMINAL
+  BANK_TRANSFER
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  EXPIRED
+}
+
+model Payment {
+  id                      String        @id @default(cuid())
+  bookingId               String
+  method                  PaymentMethod
+  status                  PaymentStatus
+  amountPence             Int
+  refundedPence           Int           @default(0)
+  currency                String
+  stripeCheckoutSessionId String?       @unique
+  stripePaymentIntentId   String?       @unique
+  note                    String?
+  recordedById            String?
+  paidAt                  DateTime?
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+
+  @@index([bookingId])
+}
+
+/// Processed Stripe webhook events (idempotency ledger).
+model StripeEvent {
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Email outbox — mail is queued in the database and retried, so an SMTP outage
+// never loses a confirmation or blocks a booking.
+// ---------------------------------------------------------------------------
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model EmailMessage {
+  id            String      @id @default(cuid())
+  kind          String
+  to            String
+  subject       String
+  text          String
+  ics           String?
+  bookingId     String?
+  status        EmailStatus @default(PENDING)
+  attempts      Int         @default(0)
+  lastError     String?
+  nextAttemptAt DateTime    @default(now())
+  sentAt        DateTime?
+  createdAt     DateTime    @default(now())
+
+  @@index([status, nextAttemptAt])
+  @@index([bookingId])
+}
+
+/// Small key/value store for operational state (last webhook, ApexBook heartbeat…).
+model SystemState {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+/// The website builder's working copy (single row). Staff edit this; publishing copies it
+/// into a SiteVersion, which is what the public site shows.
+model SiteDraft {
+  id          Int      @id @default(1)
+  doc         Json
+  /// Increases on every save, so two people editing at once can't overwrite each other.
+  revision    Int      @default(1)
+  /// Installs with their own custom-built site (the original studio) keep it live until the
+  /// builder is published; switching back to the original sets this false again.
+  builderLive Boolean  @default(false)
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
+
+/// Every publish of the website; the newest is live. Older ones can be restored.
+model SiteVersion {
+  id            String   @id @default(cuid())
+  doc           Json
+  note          String?
+  publishedById String?
+  publishedAt   DateTime @default(now())
+
+  @@index([publishedAt])
+}
+
+/// Images uploaded for the website, kept in the database so backups include them.
+model SiteAsset {
+  id           String   @id @default(cuid())
+  filename     String
+  mime         String
+  size         Int
+  data         Bytes
+  uploadedById String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+enum PromoKind {
+  PERCENT
+  FIXED
+}
+
+/// Discount codes customers can enter when booking online.
+model PromoCode {
+  id                 String    @id @default(cuid())
+  /// Upper-case, e.g. SUMMER10.
+  code               String    @unique
+  description        String?
+  kind               PromoKind
+  /// Percent (1-100) or pence off.
+  value              Int
+  active             Boolean   @default(true)
+  /// Local dates (YYYY-MM-DD), inclusive. Null = no limit.
+  validFrom          String?
+  validUntil         String?
+  maxUses            Int?
+  onePerCustomer     Boolean   @default(false)
+  /// Empty = every room.
+  roomIds            String[]  @default([])
+  minSpendPence      Int?
+  minDurationMinutes Int?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  bookings Booking[]
+}

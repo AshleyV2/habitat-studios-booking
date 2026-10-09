@@ -1,0 +1,1 @@
+ALTER TABLE "SiteDraft" ADD COLUMN "builderLive" BOOLEAN NOT NULL DEFAULT false;

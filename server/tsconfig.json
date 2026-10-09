@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": { "lib": ["ES2023"], "types": ["node"], "noEmit": true },
+  "include": ["src", "tests", "tsup.config.ts", "vitest.config.ts", "../prisma/seed-dev.ts"]
+}

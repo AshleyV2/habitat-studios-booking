@@ -1,0 +1,121 @@
+# Habitat Studios booking system — on-site production deployment.
+#
+#   postgres   local database (internal network only — never published)
+#   app        booking site + admin + API (Node/Express)
+#   backup     nightly pg_dump into ./backups with retention
+#   proxy      Caddy: HTTPS + reverse proxy       (profile "caddy", on by default)
+#   tunnel     Cloudflare Tunnel, no open ports    (profile "tunnel", optional)
+#
+# Everything is configured from .env (see .env.example and docs/INSTALL.md).
+
+name: habitat
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "10" }
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: habitat
+      POSTGRES_USER: habitat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U habitat -d habitat"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+
+  app:
+    build: .
+    image: habitat-booking:${HABITAT_VERSION:-local}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      API_PORT: "8080"
+      SERVE_CLIENT: "true"
+      DATABASE_URL: postgresql://habitat:${POSTGRES_PASSWORD}@postgres:5432/habitat?schema=public
+      BACKUP_DIR: /backups
+      LOG_DIR: /app/logs
+    volumes:
+      - applogs:/app/logs
+      - ./backups:/backups:ro
+    # Published on the host's loopback only, for a host-level nginx/Apache.
+    # Caddy (below) reaches the app over the internal network instead.
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:8080"
+    networks: [backend, frontend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    logging: *logging
+
+  backup:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGUSER: habitat
+      PGDATABASE: habitat
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_TIME: ${BACKUP_TIME:-03:30}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      TZ: ${BACKUP_TZ:-Europe/London}
+    volumes:
+      - ./backups:/backups
+      - ./deploy/scripts/backup-job.sh:/backup-job.sh:ro
+    entrypoint: ["/bin/sh", "/backup-job.sh", "daemon"]
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    logging: *logging
+
+  proxy:
+    image: caddy:2-alpine
+    profiles: ["caddy"]
+    restart: unless-stopped
+    environment:
+      HABITAT_DOMAIN: ${HABITAT_DOMAIN:?set HABITAT_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddylogs:/var/log/caddy
+    networks: [frontend]
+    depends_on: [app]
+    logging: *logging
+
+  tunnel:
+    image: cloudflare/cloudflared:2025.9.1
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env to use the tunnel}
+    networks: [frontend]
+    depends_on: [app]
+    logging: *logging
+
+networks:
+  # No route out: the database can only talk to the app and the backup job.
+  backend:
+    internal: true
+  frontend: {}
+
+volumes:
+  pgdata:
+  applogs:
+  caddy_data:
+  caddy_config:
+  caddylogs:
